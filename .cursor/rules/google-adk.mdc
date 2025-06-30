@@ -1,0 +1,30 @@
+---
+description: 
+globs: *.py
+alwaysApply: false
+---
+## General Guidelines
+
+- **Framework**: Use the Google Agent Development Kit (ADK) as the primary framework, leveraging its modular and model-agnostic capabilities.
+
+- **Language**: Write the codebase in Python, as ADK supports pip install google-adk for Python-based development.
+
+- **Modularity**: Design the system as a multi-agent architecture with specialized agents for distinct tasks (e.g., question generation, response simulation, script formatting).
+
+- **Compatibility**: Ensure compatibility with the Google ecosystem (e.g., Gemini models) but maintain model-agnostic and deployment-agnostic principles.
+
+- **Safety and Security**: Implement ADK's safety and security best practices to ensure trustworthy agent behavior.
+
+  
+
+## System Requirements
+
+- **Objective**: Develop a multi-agent system that generates realistic simulated interview scripts based on Motivational Interviewing.
+- **Input**: Accept arguments such as session objective, reference material, description of client's problem to customize the interview script.
+- **Output**: Generate a structured interview script in markdown format, including three agents' contribution.
+- **Agents**:
+  - **Therapist Agent**: Generates relevant interview questions to motivate the client and lead the whole interview.
+  - **Client Agent**: Simulates realistic responses based on his own problem and situational context.
+  - **Supervisor Agent**: Give supervision to the therapist agent to improve the quality of interview
+- **Tools**: Use ADK's pre-built tools (e.g., Search for industry context) and custom functions for response generation and formatting.
+- **Important**: Before coding, thoroughly read every page under https://google.github.io/adk-docs/ to familiarize yourself with the syntax and style of how to code the agent, and then start the actual coding.
