@@ -11,7 +11,7 @@ async def test_real_adk():
 
     print("🔧 실제 Google ADK 테스트 시작")
 
-    mi_system = MotivationalInterviewingSystem(max_interactions=10)  # 더 긴 세션
+    mi_system = MotivationalInterviewingSystem(max_interactions=3)  # 짧은 테스트
 
     client_problem = "직장 스트레스로 인한 과음 문제"
     session_goal = "음주 패턴 성찰 돕기"
@@ -20,10 +20,7 @@ async def test_real_adk():
     try:
         print("실제 ADK 세션 시작...")
         output_file = await mi_system.run_session(
-            client_problem=client_problem,
-            session_goal=session_goal,
-            reference_material=reference_material,
-            max_interactions=30,
+            client_problem=client_problem, session_goal=session_goal, reference_material=reference_material
         )
         print(f"성공: {output_file}")
         return output_file

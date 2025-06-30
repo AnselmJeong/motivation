@@ -291,7 +291,7 @@ class MotivationalInterviewingSystem:
             })
 
             # Runner 생성 및 실행
-            runner = Runner(agent=self.full_system, app_name="MotivationalInterviewing")
+            runner = Runner(agent=self.full_system, session_service=session_service, app_name="MotivationalInterviewing")
 
             # 세션 시작 메시지
             initial_message = types.Content(
