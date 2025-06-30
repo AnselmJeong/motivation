@@ -15,35 +15,10 @@ import os
 from datetime import datetime
 from typing import AsyncGenerator, Dict, Any, Optional
 from pathlib import Path
-import tempfile
+from dotenv import load_dotenv
 
+load_dotenv()
 
-# .env 파일 자동 로드
-def load_env_file():
-    """현재 디렉토리와 상위 디렉토리의 .env 파일을 찾아서 환경 변수로 로드"""
-    current_dir = Path(__file__).parent
-    env_files = [
-        current_dir / ".env",  # generator_critic/.env
-        current_dir.parent / ".env",  # 상위 디렉토리의 .env
-    ]
-
-    for env_file in env_files:
-        if env_file.exists():
-            print(f"📁 .env 파일 발견: {env_file}")
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        key, value = line.split("=", 1)
-                        os.environ[key] = value
-                        print(f"   ✅ {key} 환경 변수 설정됨")
-            break
-    else:
-        print("⚠️  .env 파일을 찾을 수 없습니다.")
-
-
-# 스크립트 시작 시 .env 파일 로드
-load_env_file()
 
 # Google ADK의 올바른 imports
 try:
@@ -201,64 +176,31 @@ class ConversationManager(BaseAgent):
 
         # 대화 히스토리 업데이트
         conversation = ctx.session.state.get("conversation_history", [])
-        
-        # 세션 상태의 모든 키 확인 (디버깅)
-        print(f"🔍 세션 상태 키들: {list(ctx.session.state.keys())}")
 
-        # 최근 응답들을 대화에 추가 - output_key로 저장된 값들을 확인
-        therapist_msg = ctx.session.state.get("therapist_response", "")
-        client_msg = ctx.session.state.get("client_response", "")
-        supervisor_msg = ctx.session.state.get("supervisor_feedback", "")
-        
-        print(f"📝 응답 확인:")
-        print(f"   Therapist: {therapist_msg[:50] if therapist_msg else 'None'}...")
-        print(f"   Client: {client_msg[:50] if client_msg else 'None'}...")
-        print(f"   Supervisor: {supervisor_msg[:50] if supervisor_msg else 'None'}...")
-
-        if therapist_msg:
+        # 최근 응답들을 대화에 추가
+        if "therapist_response" in ctx.session.state:
             conversation.append({
                 "speaker": "Therapist",
-                "message": therapist_msg,
+                "message": ctx.session.state["therapist_response"],
                 "turn": current_turn,
             })
 
-        if client_msg:
+        if "client_response" in ctx.session.state:
             conversation.append({
-                "speaker": "Client", 
-                "message": client_msg,
+                "speaker": "Client",
+                "message": ctx.session.state["client_response"],
                 "turn": current_turn,
             })
 
-        if supervisor_msg:
+        if "supervisor_feedback" in ctx.session.state:
             conversation.append({
                 "speaker": "Supervisor",
-                "message": supervisor_msg,
+                "message": ctx.session.state["supervisor_feedback"],
                 "turn": current_turn,
             })
 
-        # 대화 기록을 세션에 저장
         ctx.session.state["conversation_history"] = conversation
-        
-        # 임시 파일에 중간 저장 (백업)
-        temp_file = f"/tmp/mi_session_{ctx.session.id}.json"
-        session_backup = {
-            "session_id": ctx.session.id,
-            "client_problem": ctx.session.state.get("client_problem", ""),
-            "session_goal": ctx.session.state.get("session_goal", ""),
-            "reference_material": ctx.session.state.get("reference_material", ""),
-            "conversation_history": conversation,
-            "current_turn": current_turn,
-            "last_updated": datetime.now().isoformat(),
-        }
-        
-        try:
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(session_backup, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"   ⚠️ 임시 파일 저장 실패: {e}")
-        
-        print(f"🔄 Turn {current_turn} - 대화 기록: {len(conversation)}개 (전체 conversation: {len(ctx.session.state['conversation_history'])}개)")
-        print(f"   💾 임시 파일 저장: {temp_file}")
+        print(f"🔄 Turn {current_turn} - 대화 기록: {len(conversation)}개")
 
         # 종료 조건 확인
         should_stop = False
@@ -272,9 +214,14 @@ class ConversationManager(BaseAgent):
 
         # 자연스러운 종료 감지
         if not should_stop and current_turn >= 3:  # 최소 3턴 보장
+            recent_responses = [
+                ctx.session.state.get("therapist_response", ""),
+                ctx.session.state.get("client_response", ""),
+            ]
+
             end_phrases = ["오늘은 여기까지", "세션을 마무리", "다음에 뵙겠습니다", "감사합니다"]
-            
-            for response in [therapist_msg, client_msg]:
+
+            for response in recent_responses:
                 for phrase in end_phrases:
                     if phrase in response:
                         should_stop = True
@@ -309,15 +256,12 @@ class MotivationalInterviewingSystem:
 
         # 한 턴의 상호작용을 위한 순차 에이전트
         self.turn_sequence = SequentialAgent(
-            name="InteractionTurn", 
-            sub_agents=[self.therapist, self.client, self.supervisor, self.conversation_manager]
+            name="InteractionTurn", sub_agents=[self.therapist, self.client, self.supervisor, self.conversation_manager]
         )
 
         # 전체 시스템: LoopAgent로 반복 실행
         self.full_system = LoopAgent(
-            name="MotivationalInterviewingLoop",
-            max_iterations=self.max_interactions,
-            sub_agents=[self.turn_sequence]
+            name="MotivationalInterviewingLoop", max_iterations=self.max_interactions, sub_agents=[self.turn_sequence]
         )
 
     async def run_session(self, client_problem: str, session_goal: str, reference_material: str = "") -> str:
@@ -347,20 +291,24 @@ class MotivationalInterviewingSystem:
             })
 
             # Runner 생성 및 실행
-            runner = Runner(agent=self.full_system, session_service=session_service, app_name="MotivationalInterviewing")
-            
+            runner = Runner(agent=self.full_system, app_name="MotivationalInterviewing")
+
             # 세션 시작 메시지
             initial_message = types.Content(
                 role="user",
-                parts=[types.Part(text=f"새로운 Motivational Interviewing 세션을 시작합니다. 내담자 문제: {client_problem}")]
+                parts=[
+                    types.Part(
+                        text=f"새로운 Motivational Interviewing 세션을 시작합니다. 내담자 문제: {client_problem}"
+                    )
+                ],
             )
 
             print(f"🚀 세션 시작: max_interactions={self.max_interactions}")
 
             # 세션 실행 - LoopAgent가 자동으로 반복 실행
             events = runner.run(user_id="user_001", session_id=session.id, new_message=initial_message)
-            
-            # 이벤트 처리 - 세션 상태는 이미 업데이트되어 있음
+
+            # 이벤트 처리 (간소화)
             try:
                 async for event in events:
                     if hasattr(event, "actions") and event.actions and event.actions.escalate:
@@ -372,10 +320,6 @@ class MotivationalInterviewingSystem:
                     if hasattr(event, "actions") and event.actions and event.actions.escalate:
                         print("🏁 세션 종료 신호 감지")
                         break
-
-            print(f"🔚 세션 완료 - 최종 상태 확인:")
-            print(f"   conversation_history: {len(session.state.get('conversation_history', []))}개")
-            print(f"   current_turn: {session.state.get('current_turn', 0)}")
 
             # 세션 기록 저장
             output_file = await self._save_session_record(session)
@@ -452,36 +396,10 @@ class MotivationalInterviewingSystem:
         """세션 기록을 파일로 저장"""
 
         # 디버깅: 세션 상태 출력
-        print("📊 세션 저장 시 상태 확인:")
+        print(f"📊 세션 저장 시 상태 확인:")
         print(f"   세션 상태 키들: {list(session.state.keys())}")
-        print(f"   conversation_history: {len(session.state.get('conversation_history', []))}개")
+        print(f"   conversation_history: {session.state.get('conversation_history', [])}")
         print(f"   current_turn: {session.state.get('current_turn', 0)}")
-        
-        # 임시 파일에서 백업 데이터 확인
-        temp_file = f"/tmp/mi_session_{session.id}.json"
-        backup_data = None
-        
-        if os.path.exists(temp_file):
-            try:
-                with open(temp_file, "r", encoding="utf-8") as f:
-                    backup_data = json.load(f)
-                print(f"   🔍 임시 파일 데이터 발견:")
-                print(f"      conversation_history: {len(backup_data.get('conversation_history', []))}개")
-                print(f"      current_turn: {backup_data.get('current_turn', 0)}")
-            except Exception as e:
-                print(f"   ⚠️ 임시 파일 읽기 실패: {e}")
-        else:
-            print(f"   ❌ 임시 파일 없음: {temp_file}")
-
-        # 백업 데이터가 있으면 사용, 없으면 일반 데이터 사용
-        if backup_data and backup_data.get("conversation_history"):
-            final_conversation = backup_data["conversation_history"]
-            final_turn = backup_data["current_turn"]
-            print(f"   ✅ 백업 데이터 사용: {len(final_conversation)}개 대화, {final_turn}턴")
-        else:
-            final_conversation = session.state.get("conversation_history", [])
-            final_turn = session.state.get("current_turn", 0)
-            print(f"   📋 세션 데이터 사용: {len(final_conversation)}개 대화, {final_turn}턴")
 
         # 세션 데이터 수집
         session_data = {
@@ -490,10 +408,10 @@ class MotivationalInterviewingSystem:
                 "client_problem": session.state.get("client_problem", ""),
                 "session_goal": session.state.get("session_goal", ""),
                 "reference_material": session.state.get("reference_material", ""),
-                "total_turns": final_turn,
+                "total_turns": session.state.get("current_turn", 0),
                 "termination_reason": session.state.get("termination_reason", "세션 완료"),
             },
-            "conversation": final_conversation,
+            "conversation": session.state.get("conversation_history", []),
         }
 
         # 마크다운 형식으로 저장
@@ -575,7 +493,12 @@ def run_mi_session_sync(
     )
 
 
-# 편의를 위한 함수들 정의
+# 도구 정의
+def exit_conversation(tool_context: ToolContext):
+    """대화가 자연스럽게 종료되었을 때 호출하는 도구"""
+    print(f"  [Tool Call] exit_conversation triggered by {tool_context.agent_name}")
+    tool_context.actions.escalate = True
+    return {"status": "conversation_ended", "reason": "natural_completion"}
 
 
 if __name__ == "__main__":
