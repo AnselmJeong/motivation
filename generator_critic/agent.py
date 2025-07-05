@@ -101,7 +101,8 @@ class TherapistAgent(LlmAgent):
         **필수 진행 방식:**
         1. **첫 번째**: 위에 명시된 세션 목표 달성을 최우선으로 하세요
         2. **두 번째**: 참고 자료에 제시된 구체적 기법들을 적극 활용하세요. 기법에 얽매이기보다는 자연스러운 대화 진행을 우선시하세요
-        3. **세 번째**: 내담자의 문제를 세션 목표 관점에서 재구성하여 접근하세요
+        3. **세 번째**: supervisor의 피드백을 참고하여 효과적인 면담이 되도록 애써야 합니다. 하지만 피드백을 모두 따를 필요는 없습니다.
+        4. **네 번째**: 내담자의 문제를 세션 목표 관점에서 재구성하여 접근하세요
         
         **구체적인 활용 방법:**
         - 참고 자료에 제시된 연습, 기법, 개념들을 직접 소개하고 적용하세요
@@ -127,7 +128,8 @@ class TherapistAgent(LlmAgent):
         
         각 단계에 맞는 속도로 진행하되, 세션 목표 달성을 최우선으로 하세요.
         
-        자연스럽고 따뜻한 톤으로 작성하되, 세션 목표 달성을 위한 참고 자료 기법 적용을 반드시 포함하세요.
+        자연스럽고 따뜻한 톤으로 작성하되, 세션 목표 달성을 위한 참고 자료 기법 적용을 포함하세요.
+        치료자의 말이 너무 길어져서 주의를 흐트러뜨리거나, 면담을 독점하지 않도록 주의하세요. 또한 매번 비슷한 표현을 반복하는 것도 지양하세요.
         
         🔚 세션 종료 조건:
         세션 목표가 달성되었다고 판단되면 "오늘 면담은 이것으로 마치겠습니다"라고 말하여 세션을 종료하세요.
@@ -272,8 +274,10 @@ class ConversationManager(BaseAgent):
         current_turn = ctx.session.state.get("current_turn", 0) + 1
         ctx.session.state["current_turn"] = current_turn
 
-        # 대화 히스토리 업데이트
+        # 대화 히스토리 업데이트 (효율적인 컨텍스트 관리)
         conversation = ctx.session.state.get("conversation_history", [])
+        MAX_DIALOGUE_TURNS = 12  # Therapist-Client 대화는 최근 12개 턴 유지
+        MAX_SUPERVISOR_FEEDBACKS = 1  # Supervisor 피드백은 최근 1개만 유지
 
         # 최근 응답들을 대화에 추가
         if "therapist_response" in ctx.session.state:
@@ -297,6 +301,40 @@ class ConversationManager(BaseAgent):
                 "turn": current_turn,
             })
 
+        # 효율적인 히스토리 관리: Therapist-Client는 많이, Supervisor는 적게
+        dialogue_messages = [msg for msg in conversation if msg["speaker"] in ["Therapist", "Client"]]
+        supervisor_messages = [msg for msg in conversation if msg["speaker"] == "Supervisor"]
+
+        # Therapist-Client 대화는 최근 MAX_DIALOGUE_TURNS개 턴 유지
+        if len(dialogue_messages) > MAX_DIALOGUE_TURNS * 2:  # 각 턴마다 Therapist + Client = 2개
+            # 턴별로 그룹화하여 오래된 턴부터 제거
+            dialogue_by_turn = {}
+            for msg in dialogue_messages:
+                turn_num = msg["turn"]
+                if turn_num not in dialogue_by_turn:
+                    dialogue_by_turn[turn_num] = []
+                dialogue_by_turn[turn_num].append(msg)
+
+            # 최신 턴들만 유지
+            recent_dialogue_turns = sorted(dialogue_by_turn.keys())[-MAX_DIALOGUE_TURNS:]
+            filtered_dialogue = []
+            for turn_num in recent_dialogue_turns:
+                filtered_dialogue.extend(dialogue_by_turn[turn_num])
+        else:
+            filtered_dialogue = dialogue_messages
+
+        # Supervisor 피드백은 최근 MAX_SUPERVISOR_FEEDBACKS개만 유지
+        filtered_supervisor = supervisor_messages[-MAX_SUPERVISOR_FEEDBACKS:] if supervisor_messages else []
+
+        # 새로운 대화 히스토리 구성 (턴 순서대로 정렬)
+        conversation = filtered_dialogue + filtered_supervisor
+        conversation.sort(key=lambda x: (x["turn"], ["Therapist", "Client", "Supervisor"].index(x["speaker"])))
+
+        if len(dialogue_messages) > MAX_DIALOGUE_TURNS * 2 or len(supervisor_messages) > MAX_SUPERVISOR_FEEDBACKS:
+            dialogue_turns = len(set(msg["turn"] for msg in filtered_dialogue))
+            supervisor_count = len(filtered_supervisor)
+            print(f"🗂️ 컨텍스트 최적화: 대화 {dialogue_turns}턴, 슈퍼바이저 {supervisor_count}개 피드백 유지")
+
         ctx.session.state["conversation_history"] = conversation
 
         # 진행 상황 정보 업데이트
@@ -311,7 +349,7 @@ class ConversationManager(BaseAgent):
         }
 
         print(
-            f"🔄 Turn {current_turn}/{max_interactions} - 대화 기록: {len(conversation)}개 (남은 턴: {remaining_turns})"
+            f"🔄 Turn {current_turn}/{max_interactions} - 대화 기록: {len(conversation)}개 메시지 (남은 턴: {remaining_turns})"
         )
 
         # 에이전트들에게 현재 턴 정보 업데이트
@@ -320,10 +358,18 @@ class ConversationManager(BaseAgent):
                 current_turn=current_turn, max_interactions=max_interactions, remaining_turns=remaining_turns
             )
 
-        # 시스템 백업에 상태 저장
+        # 시스템 백업에 상태 저장 (전체 히스토리 보존)
         if self._system_reference:
+            # 백업에는 전체 히스토리 저장 (출력용)
+            full_history = self._system_reference.session_backup.get("full_conversation_history", [])
+
+            # 현재 턴의 새 메시지들만 추가
+            new_messages = [msg for msg in conversation if msg["turn"] == current_turn]
+            full_history.extend(new_messages)
+
             self._system_reference.session_backup.update({
-                "conversation_history": conversation.copy(),
+                "conversation_history": conversation.copy(),  # 제한된 히스토리 (AI 컨텍스트용)
+                "full_conversation_history": full_history,  # 전체 히스토리 (출력용)
                 "current_turn": current_turn,
                 "client_problem": ctx.session.state.get("client_problem", ""),
                 "session_goal": ctx.session.state.get("session_goal", ""),
@@ -373,10 +419,22 @@ class ConversationManager(BaseAgent):
 
 
 class MotivationalInterviewingSystem:
-    """전체 Motivational Interviewing 시스템을 관리하는 클래스"""
+    """전체 Motivational Interviewing 시스템을 관리하는 클래스
 
-    def __init__(self, max_interactions: int = 100):
+    Args:
+        max_interactions: 최대 상호작용 횟수 (기본값: 100)
+        serial_number: 시리얼 번호 (기본값: "001")
+        session_number: 세션 번호 (기본값: "01", task 번호와 일치)
+
+    Note:
+        출력 파일명은 {serial_number}_s{session_number}_{type}_{timestamp}.md 형식으로 생성됩니다.
+        한 세트의 인터뷰는 12번의 세션(s01~s12)으로 구성됩니다.
+    """
+
+    def __init__(self, max_interactions: int = 100, serial_number: str = "001", session_number: str = "01"):
         self.max_interactions = max_interactions
+        self.serial_number = serial_number
+        self.session_number = session_number
         self.session_backup = {}  # 세션 상태 백업용
 
     def _setup_agents(self, client_problem: str, session_goal: str, reference_material: str):
@@ -602,20 +660,20 @@ class MotivationalInterviewingSystem:
     async def _save_session_record(self, session) -> Dict[str, str]:
         """세션 기록을 파일로 저장"""
 
-        # 디버깅: 세션 상태 출력
-        # print("📊 세션 저장 시 상태 확인:")
-        # print(f"   세션 상태 키들: {list(session.state.keys())}")
-        # print(f"   conversation_history: {session.state.get('conversation_history', [])}")
-        # print(f"   current_turn: {session.state.get('current_turn', 0)}")
-        # print(f"   백업 상태: {self.session_backup}")
+        # 출력용으로는 전체 히스토리 사용 (모든 supervisor feedback 포함)
+        full_conversation_history = self.session_backup.get("full_conversation_history", [])
 
-        # 백업된 데이터 사용 (세션 상태가 비어있을 경우)
-        conversation_history = session.state.get("conversation_history", [])
-        if not conversation_history and self.session_backup.get("conversation_history"):
-            print("⚠️ 세션 상태가 비어있음. 백업 데이터 사용.")
-            conversation_history = self.session_backup["conversation_history"]
+        # 전체 히스토리가 없으면 현재 세션 상태 사용 (fallback)
+        if not full_conversation_history:
+            conversation_history = session.state.get("conversation_history", [])
+            if not conversation_history and self.session_backup.get("conversation_history"):
+                print("⚠️ 세션 상태가 비어있음. 백업 데이터 사용.")
+                conversation_history = self.session_backup["conversation_history"]
+            full_conversation_history = conversation_history
 
-        # 세션 데이터 수집
+        print(f"📁 출력 파일 생성: 총 {len(full_conversation_history)}개 메시지 (모든 슈퍼바이저 피드백 포함)")
+
+        # 세션 데이터 수집 (전체 히스토리 사용)
         session_data = {
             "session_info": {
                 "timestamp": datetime.now().isoformat(),
@@ -627,7 +685,7 @@ class MotivationalInterviewingSystem:
                 "total_turns": session.state.get("current_turn", 0) or self.session_backup.get("current_turn", 0),
                 "termination_reason": session.state.get("termination_reason", "세션 완료"),
             },
-            "conversation": conversation_history,
+            "conversation": full_conversation_history,  # 모든 supervisor feedback 포함된 전체 히스토리 사용
         }
 
         # 출력 디렉토리 생성
@@ -637,7 +695,7 @@ class MotivationalInterviewingSystem:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # 전체 세션 기록 (마크다운)
-        full_filename = f"mi_session_{timestamp}.md"
+        full_filename = f"{self.serial_number}_s{self.session_number}_session_{timestamp}.md"
         full_filepath = output_dir / full_filename
         full_markdown_content = self._generate_markdown(session_data)
 
@@ -645,7 +703,7 @@ class MotivationalInterviewingSystem:
             f.write(full_markdown_content)
 
         # 치료사-내담자 대화만 저장 (마크다운)
-        dialogue_filename = f"mi_dialogue_{timestamp}.md"
+        dialogue_filename = f"{self.serial_number}_s{self.session_number}_dialogue_{timestamp}.md"
         dialogue_filepath = output_dir / dialogue_filename
         dialogue_markdown_content = self._generate_dialogue_markdown(session_data)
 
@@ -726,11 +784,34 @@ class MotivationalInterviewingSystem:
 
 # 편의를 위한 함수들
 async def create_mi_session(
-    client_problem: str, session_goal: str, reference_material: str = "", max_interactions: int = 100
+    client_problem: str,
+    session_goal: str,
+    reference_material: str = "",
+    max_interactions: int = 100,
+    serial_number: str = "001",
+    session_number: str = "01",
 ) -> Dict[str, str]:
-    """새로운 MI 세션을 생성하고 실행"""
+    """새로운 MI 세션을 생성하고 실행
 
-    system = MotivationalInterviewingSystem(max_interactions=max_interactions)
+    Args:
+        client_problem: 내담자 문제 설명
+        session_goal: 세션 목표
+        reference_material: 참고 자료
+        max_interactions: 최대 상호작용 횟수
+        serial_number: 시리얼 번호 (예: "001", "002")
+        session_number: 세션 번호 (예: "01", "02", task 번호와 일치)
+
+    Returns:
+        출력 파일 경로 딕셔너리 (full_session, dialogue_only)
+
+    Note:
+        출력 파일명 형식: {serial_number}_s{session_number}_{type}_{timestamp}.md
+        예: 001_s01_session_20241201_143022.md
+    """
+
+    system = MotivationalInterviewingSystem(
+        max_interactions=max_interactions, serial_number=serial_number, session_number=session_number
+    )
     output_files = await system.run_session(
         client_problem=client_problem, session_goal=session_goal, reference_material=reference_material
     )
@@ -739,9 +820,30 @@ async def create_mi_session(
 
 
 def run_mi_session_sync(
-    client_problem: str, session_goal: str, reference_material: str = "", max_interactions: int = 100
+    client_problem: str,
+    session_goal: str,
+    reference_material: str = "",
+    max_interactions: int = 100,
+    serial_number: str = "001",
+    session_number: str = "01",
 ) -> Dict[str, str]:
-    """동기 방식으로 MI 세션을 실행"""
+    """동기 방식으로 MI 세션을 실행
+
+    Args:
+        client_problem: 내담자 문제 설명
+        session_goal: 세션 목표
+        reference_material: 참고 자료
+        max_interactions: 최대 상호작용 횟수
+        serial_number: 시리얼 번호 (예: "001", "002")
+        session_number: 세션 번호 (예: "01", "02", task 번호와 일치)
+
+    Returns:
+        출력 파일 경로 딕셔너리 (full_session, dialogue_only)
+
+    Note:
+        출력 파일명 형식: {serial_number}_s{session_number}_{type}_{timestamp}.md
+        예: 001_s01_dialogue_20241201_143022.md
+    """
 
     return asyncio.run(
         create_mi_session(
@@ -749,6 +851,8 @@ def run_mi_session_sync(
             session_goal=session_goal,
             reference_material=reference_material,
             max_interactions=max_interactions,
+            serial_number=serial_number,
+            session_number=session_number,
         )
     )
 
@@ -785,8 +889,12 @@ if __name__ == "__main__":
         session_goal=example_session_goal,
         reference_material=example_reference_material,
         max_interactions=10,  # 예시를 위해 짧게 설정
+        serial_number="001",  # 시리얼 번호
+        session_number="01",  # 세션 번호 (task_01.md에 해당)
     )
 
     print("세션이 완료되었습니다.")
     print(f"전체 세션 기록: {output_files['full_session']}")
     print(f"치료사-내담자 대화: {output_files['dialogue_only']}")
+    print("\n💡 파일명 형식: {serial_number}_s{session_number}_{type}_{timestamp}.md")
+    print("   예시: 001_s01_session_20241201_143022.md, 001_s01_dialogue_20241201_143022.md")

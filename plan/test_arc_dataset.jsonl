@@ -1,0 +1,56 @@
+{
+  "arc_id": "arc_012",
+  "session_id": 5,
+  "client_profile": {
+    "name": "김내담",
+    "age": 34,
+    "gender": "남성",
+    "presenting_problem": "최근 음주 문제와 업무 스트레스",
+    "personality_traits": ["회피적", "완벽주의적"],
+    "coping_style": "감정 억제 및 회피",
+    "support_system": "가족과의 관계는 거리감 있음, 직장 동료와는 무난한 편",
+    "motivation_level": "중간",
+    "ttm_initial_stage": "Contemplation"
+  },
+  "arc_plan": [
+    { "session_id": 1, "goal": "신뢰 형성 및 초기 관계 구축" },
+    { "session_id": 2, "goal": "문제 인식 촉진 (음주 행동 탐색)" },
+    { "session_id": 3, "goal": "가치 탐색 및 행동 불일치 인식" },
+    { "session_id": 4, "goal": "음주에 대한 ambivalence 다루기" },
+    { "session_id": 5, "goal": "음주 습관 인식 및 행동 계획의 싹 틔우기" },
+    { "session_id": 6, "goal": "행동 계획 구체화 및 지지 강화" },
+    { "session_id": 7, "goal": "잠재적 저항 요소 탐색 및 대응 전략 수립" },
+    { "session_id": 8, "goal": "변화 유지 전략 수립" },
+    { "session_id": 9, "goal": "재발 방지 계획 수립" },
+    { "session_id": 10, "goal": "종결 및 성찰" }
+  ],
+  "session_goal": "음주 습관 인식 및 행동 계획의 싹 틔우기",
+  "dialogue": [
+    {
+      "role": "therapist",
+      "content": "요즘 음주가 본인에게 어떤 영향을 주고 있나요?"
+    },
+    {
+      "role": "client",
+      "content": "솔직히 말하면 자꾸 일이 꼬이는 것 같아요."
+    },
+    {
+      "role": "therapist",
+      "content": "그 일이 꼬인다는 게 어떤 상황을 말하는 걸까요?"
+    },
+    {
+      "role": "client",
+      "content": "회의에서 자꾸 실수하고, 집중이 잘 안 되는 느낌이에요."
+    },
+    {
+      "role": "therapist",
+      "content": "그럴 때마다 본인이 느끼는 감정은 어떤가요?"
+    },
+    {
+      "role": "client",
+      "content": "짜증도 나고... 한심하단 생각도 들어요."
+    }
+  ],
+  "session_summary": "이 회기에서는 내담자가 음주가 직장 생활에 부정적인 영향을 미치고 있음을 자각하였다. 실수와 집중력 저하에 대해 감정을 표현했고, 자기 인식이 시작되었음.",
+  "assessed_ttm_stage": "Contemplation"
+}
